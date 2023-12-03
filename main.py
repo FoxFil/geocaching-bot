@@ -175,16 +175,6 @@ def start(message: Message):
         else:
             if check_if_in_geocaches(code):
                 data = get_geocaches_data(code)
-                coords, questions, answers = (
-                    list(map(lambda x: " ".join(x.split()[1:]), data[4].split("\n"))),
-                    list(map(lambda x: " ".join(x.split()[1:]), data[5].split("\n"))),
-                    list(map(lambda x: " ".join(x.split()[1:]), data[6].split("\n"))),
-                )
-                questions_message = ""
-                for i, question in enumerate(questions):
-                    questions_message += (
-                        f"`{i + 1}. {question} | {coords[i]} | {answers[i]}`\n"
-                    )
 
                 button_start = InlineKeyboardButton(
                     "Начать!", callback_data=f"start_quest;{data[0]}"
@@ -195,7 +185,7 @@ def start(message: Message):
                 bot.send_photo(
                     message.chat.id,
                     data[3],
-                    f"""Привет! Ты попал на страницу тайника {data[0]}.
+                    f"""Привет! Ты попал на страницу тайника *{data[0]}*.
 
 *{data[1]}*
 
@@ -231,6 +221,10 @@ def button_callback(call: CallbackQuery):
                 creation_add_code(call.message)
             case "creation_confirmed":
                 creation_successful(call.message, data[1])
+            case "start_quest":
+                start_quest(call.message, data[1])
+            case "q_one_by_one":
+                questions_one_by_one(call.message, data[1], int(data[2]))
             case _:
                 bot.send_message(
                     call.message.chat.id,
@@ -239,6 +233,154 @@ def button_callback(call: CallbackQuery):
     except Exception as e:
         bot.send_message(
             call.message.chat.id,
+            f"⛔ Возникла ошибка, пожалуйста, сообщите об этом @FoxFil\n\nОшибка:\n\n`{e}`",
+            parse_mode="Markdown",
+        )
+
+
+def start_quest(message: Message, code: str):
+    try:
+        bot.edit_message_reply_markup(
+            chat_id=message.chat.id, message_id=message.message_id, reply_markup=None
+        )
+
+        data = get_geocaches_data(code)
+
+        button_one_by_one = InlineKeyboardButton(
+            "По очереди", callback_data=f"q_one_by_one;{data[0]};0"
+        )
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(button_one_by_one)
+
+        bot.send_message(
+            message.chat.id,
+            f"Ты можешь отвечать на вопросы по очереди или сразу узнать все вопросы. Выбери режим нажав на кнопку снизу. Чтобы завершить прохождение тайника, просто напиши /stop в любой момент",
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        bot.send_message(
+            message.chat.id,
+            f"⛔ Возникла ошибка, пожалуйста, сообщите об этом @FoxFil\n\nОшибка:\n\n`{e}`",
+            parse_mode="Markdown",
+        )
+
+
+def questions_one_by_one(message: Message, code: str, question_number: int):
+    try:
+        if question_number == 0:
+            bot.edit_message_reply_markup(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                reply_markup=None,
+            )
+        data = get_geocaches_data(code)
+
+        coords, questions, answers = (
+            list(map(lambda x: " ".join(x.split()[1:]), data[4].split("\n"))),
+            list(map(lambda x: " ".join(x.split()[1:]), data[5].split("\n"))),
+            list(map(lambda x: " ".join(x.split()[1:]), data[6].split("\n"))),
+        )
+        questions_list = []
+        for i, question in enumerate(questions):
+            questions_list.append(
+                f"Вопрос {i + 1}: *{question}*\n\nКоординаты: `{coords[i]}`"
+            )
+
+        if len(questions_list) == question_number:
+            finish_quest_success(message, code)
+        else:
+            if question_number == 0:
+                question_answer = bot.send_message(
+                    message.chat.id,
+                    f"{questions_list[question_number]}\n\nЧтобы ответить, просто пришли мне ответ на вопрос.",
+                    parse_mode="Markdown",
+                )
+                bot.register_next_step_handler(
+                    question_answer, questions_one_by_one, code, question_number + 1
+                )
+            else:
+                if message.text:
+                    given_answer = message.text.lower().strip()
+                    if given_answer != "/stop":
+                        real_answer = answers[question_number - 1].lower().strip()
+                        if given_answer == real_answer:
+                            question_answer = bot.send_message(
+                                message.chat.id,
+                                f"👍 Вы ответили верно! (`{given_answer}`)\n\n{questions_list[question_number]}",
+                                parse_mode="Markdown",
+                            )
+                            bot.register_next_step_handler(
+                                question_answer,
+                                questions_one_by_one,
+                                code,
+                                question_number + 1,
+                            )
+                        else:
+                            question_answer = bot.send_message(
+                                message.chat.id,
+                                f"👎 Ваш ответ (`{given_answer}`) - неверный. Попробуйте снова.",
+                                parse_mode="Markdown",
+                            )
+                            bot.register_next_step_handler(
+                                question_answer,
+                                questions_one_by_one,
+                                code,
+                                question_number,
+                            )
+                    else:
+                        stop_answering_question(message)
+                else:
+                    sticker_message = bot.send_message(
+                        message.chat.id,
+                        f"❌ Кажется, ты отправил стикер или картинку.\n\n{questions_list[question_number - 1]}",
+                        parse_mode="Markdown",
+                    )
+                    bot.register_next_step_handler(
+                        sticker_message, questions_one_by_one, code, question_number
+                    )
+    except Exception as e:
+        bot.send_message(
+            message.chat.id,
+            f"⛔ Возникла ошибка, пожалуйста, сообщите об этом @FoxFil\n\nОшибка:\n\n`{e}`",
+            parse_mode="Markdown",
+        )
+
+
+def finish_quest_success(message: Message, code: str):
+    try:
+        data = get_geocaches_data(code)
+
+        questions, answers = (
+            list(map(lambda x: " ".join(x.split()[1:]), data[5].split("\n"))),
+            list(map(lambda x: " ".join(x.split()[1:]), data[6].split("\n"))),
+        )
+
+        questions_list = []
+        for i, _ in enumerate(questions):
+            questions_list.append(f"*Вопрос {i + 1}*: `{answers[i]}`\n\n")
+
+        bot.send_message(
+            message.chat.id,
+            f"🎉 Поздравляю! Ты верно ответил на все вопросы:\n\n{''.join(questions_list)}",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        bot.send_message(
+            message.chat.id,
+            f"⛔ Возникла ошибка, пожалуйста, сообщите об этом @FoxFil\n\nОшибка:\n\n`{e}`",
+            parse_mode="Markdown",
+        )
+
+
+def stop_answering_question(message: Message):
+    try:
+        bot.send_message(
+            message.chat.id,
+            f"Вы завершили прохождение тайника.",
+        )
+    except Exception as e:
+        bot.send_message(
+            message.chat.id,
             f"⛔ Возникла ошибка, пожалуйста, сообщите об этом @FoxFil\n\nОшибка:\n\n`{e}`",
             parse_mode="Markdown",
         )
