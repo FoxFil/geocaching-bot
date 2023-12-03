@@ -430,7 +430,7 @@ def creation_add_code(message: Message):
 def creation_add_name(message: Message):
     try:
         if message.text and message.text[:2].isalpha() and message.text[2:].isdigit():
-            if not check_if_in_geocaches(message.text):
+            if not check_if_in_geocaches(message.text.upper()):
                 data = [message.text]
                 cache_name = bot.send_message(
                     message.chat.id,
@@ -442,7 +442,7 @@ def creation_add_name(message: Message):
             else:
                 bot.send_message(
                     message.chat.id,
-                    f"❌ Данный тайник уже существует. Запустить его можно по команде `/start {message.text}`",
+                    f"❌ Данный тайник уже существует. Запустить его можно по команде `/start {message.text.upper()}`",
                     parse_mode="Markdown",
                 )
         else:
