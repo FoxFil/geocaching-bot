@@ -339,28 +339,40 @@ def questions_one_by_one(message: Message, code: str, question_number: int):
                         )
 
                         if mistakes >= 3:
-                            question_answer = bot.send_message(
-                                message.chat.id,
-                                f"У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника. Вы переходите к следующему вопросу\n\n{questions_list[question_number]}",
-                                parse_mode="Markdown",
-                            )
-                            bot.register_next_step_handler(
-                                question_answer,
-                                questions_one_by_one,
-                                code,
-                                question_number + 1,
-                            )
+                            if question_number == len(questions_list):
+                                bot.send_message(
+                                    message.chat.id,
+                                    "У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника.",
+                                    parse_mode="Markdown",
+                                )
+                                questions_one_by_one(
+                                    message,
+                                    code,
+                                    question_number + 1,
+                                )
+                            else:
+                                question_answer = bot.send_message(
+                                    message.chat.id,
+                                    f"У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника. Вы переходите к следующему вопросу\n\n{questions_list[question_number]}",
+                                    parse_mode="Markdown",
+                                )
+                                bot.register_next_step_handler(
+                                    question_answer,
+                                    questions_one_by_one,
+                                    code,
+                                    question_number + 1,
+                                )
                         else:
                             real_answer = answers[question_number - 1].lower().strip()
                             if given_answer == real_answer:
                                 if question_number == len(questions_list):
-                                    question_answer = bot.send_message(
+                                    bot.send_message(
                                         message.chat.id,
                                         f"👍 Вы ответили верно! (`{given_answer}`)",
                                         parse_mode="Markdown",
                                     )
                                     questions_one_by_one(
-                                        question_answer,
+                                        message,
                                         code,
                                         question_number + 1,
                                     )
@@ -379,7 +391,7 @@ def questions_one_by_one(message: Message, code: str, question_number: int):
                             else:
                                 if mistakes >= 2:
                                     if question_number == len(questions_list):
-                                        question_answer = bot.send_message(
+                                        bot.send_message(
                                             message.chat.id,
                                             f"👎 Ваш ответ (`{given_answer}`) - неверный. У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника.",
                                             parse_mode="Markdown",
@@ -390,7 +402,7 @@ def questions_one_by_one(message: Message, code: str, question_number: int):
                                             str(question_number),
                                         )
                                         questions_one_by_one(
-                                            question_answer,
+                                            message,
                                             code,
                                             question_number + 1,
                                         )
@@ -466,11 +478,13 @@ def finish_quest_success(message: Message, code: str):
 
         questions_list = []
         for i, _ in enumerate(questions):
-            questions_list.append(f"*Вопрос {i + 1}*: `{answers[i]}`\n\n")
+            questions_list.append(
+                f"*Вопрос {i + 1}*: `{answers[i] if get_mistakes(str(message.from_user.id), code, str(i + 1)) < 3 else 'нет ответа'}`\n\n"
+            )
 
         bot.send_message(
             message.chat.id,
-            f"🎉 Поздравляю! Ты верно ответил на все вопросы:\n\n{''.join(questions_list)}",
+            f"🎉 Поздравляю! Ты прошел тайник. Вот твои ответы:\n\n{''.join(questions_list)}",
             parse_mode="Markdown",
         )
     except Exception as e:
