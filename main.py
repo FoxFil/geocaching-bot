@@ -17,6 +17,19 @@ bot = telebot.TeleBot(token)
 creation_data = {}
 
 
+def get_geocaches_data(code):
+    con = sql.connect("geocaches.db")
+    cur = con.cursor()
+
+    data = cur.execute(
+        f"""SELECT * FROM geocaches WHERE website_code = '{code}'"""
+    ).fetchall()[0]
+
+    cur.close()
+
+    return data
+
+
 def check_if_in_geocaches(code):
     try:
         con = sql.connect("geocaches.db")
@@ -147,8 +160,8 @@ def get_parameter(text):
 @bot.message_handler(commands=["start", "help"])
 def start(message: Message):
     try:
-        cache_code = get_parameter(message.text)
-        if not cache_code:
+        code = get_parameter(message.text)
+        if not code:
             button_create = InlineKeyboardButton(
                 "➕ Создать новый тайник", callback_data="create_cache_callbacak"
             )
@@ -160,7 +173,42 @@ def start(message: Message):
                 reply_markup=keyboard,
             )
         else:
-            bot.send_message(message.chat.id, f"начинается квест тайника: {cache_code}")
+            if check_if_in_geocaches(code):
+                data = get_geocaches_data(code)
+                coords, questions, answers = (
+                    list(map(lambda x: " ".join(x.split()[1:]), data[4].split("\n"))),
+                    list(map(lambda x: " ".join(x.split()[1:]), data[5].split("\n"))),
+                    list(map(lambda x: " ".join(x.split()[1:]), data[6].split("\n"))),
+                )
+                questions_message = ""
+                for i, question in enumerate(questions):
+                    questions_message += (
+                        f"`{i + 1}. {question} | {coords[i]} | {answers[i]}`\n"
+                    )
+
+                button_start = InlineKeyboardButton(
+                    "Начать!", callback_data=f"start_quest;{data[0]}"
+                )
+                keyboard = InlineKeyboardMarkup()
+                keyboard.add(button_start)
+
+                bot.send_photo(
+                    message.chat.id,
+                    data[3],
+                    f"""Привет! Ты попал на страницу тайника {data[0]}.
+
+*{data[1]}*
+
+Описание:
+{data[2]}""",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    "❌ Такого тайника не существует! Напиши /start, чтобы создать его.",
+                )
     except Exception as e:
         bot.send_message(
             message.chat.id,
@@ -271,17 +319,17 @@ def creation_add_name(message: Message):
 
 def creation_add_description(message: Message, data: list):
     try:
-        if message.text:
+        if message.text and len(message.text) <= 50:
             data.append(message.text)
             cache_description = bot.send_message(
                 message.chat.id,
-                "Отправь мне описание тайника.",
+                "Отправь мне описание тайника (не более 500 символов).",
             )
             bot.register_next_step_handler(cache_description, creation_add_image, data)
         else:
             cache_code = bot.send_message(
                 message.chat.id,
-                "❌ Кажется, вы отправили стикер! Отправь мне название тайника.",
+                "❌ Кажется, вы отправили стикер или название вашего тайника больше 50 символов! Отправь мне название тайника.",
             )
             bot.register_next_step_handler(cache_code, creation_add_description, data)
     except Exception as e:
@@ -294,7 +342,7 @@ def creation_add_description(message: Message, data: list):
 
 def creation_add_image(message: Message, data: list):
     try:
-        if message.text:
+        if message.text and len(message.text) <= 500:
             data.append(message.text)
             cache_image = bot.send_message(
                 message.chat.id,
@@ -304,7 +352,7 @@ def creation_add_image(message: Message, data: list):
         else:
             cache_description = bot.send_message(
                 message.chat.id,
-                "❌ Кажется, вы отправили стикер! Отправь мне описание тайника.",
+                "❌ Кажется, вы отправили стикер или описание тайника больше 500 символов! Отправь мне описание тайника (не более 500 символов).",
             )
             bot.register_next_step_handler(cache_description, creation_add_image, data)
     except Exception as e:
@@ -467,9 +515,10 @@ def creation_final(message: Message, data: list):
             keyboard = InlineKeyboardMarkup()
             keyboard.add(button_confirm, button_repeat)
 
-            bot.send_photo(
+            bot.send_photo(message.chat.id, data[3])
+
+            bot.send_message(
                 message.chat.id,
-                data[3],
                 f"""Спасибо, что ответил на все вопросы. Вот информация о твоем тайнике.
 
 *Код*: `{data[0]}`
@@ -478,9 +527,9 @@ def creation_final(message: Message, data: list):
 
 *Описание*:
 
-`{(data[2][:200] + '...') if len(data[2]) >= 200 else data[2]}`
+`{data[2]}`
 
-*Картинка*: отправлена в приложении
+*Картинка*: отправлена выше
 
 *Вопросы с координатами и ответами*:
 
@@ -521,7 +570,7 @@ def creation_successful(message: Message, code: str):
         move_to_db(code)
         bot.send_message(
             message.chat.id,
-            f"✅ Тайник успешно создан и добавлен в базу. Спасибо!",
+            f"✅ Тайник успешно создан и добавлен в базу. Ссылка для старта: t.me/GeocachingSU_Bot?start={code} Спасибо!",
         )
     except Exception as e:
         bot.send_message(
