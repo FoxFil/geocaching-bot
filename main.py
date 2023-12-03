@@ -17,6 +17,38 @@ bot = telebot.TeleBot(token)
 creation_data = {}
 
 
+def add_mistake(id, code, question_number):
+    try:
+        con = sql.connect("geocaches.db")
+        cur = con.cursor()
+        insertion = """INSERT INTO questions_mistakes
+                                  (tg_id, geocache_code, question_number) VALUES (?, ?, ?)"""
+        data_tuple = (id, code, question_number)
+        cur.execute(insertion, data_tuple)
+        con.commit()
+        cur.close()
+
+    except sql.Error as error:
+        print("Failed to insert data into sqlite table (questions_mistakes)", error)
+
+
+def get_mistakes(id, code, question_number):
+    try:
+        con = sql.connect("geocaches.db")
+        cur = con.cursor()
+
+        data = cur.execute(
+            f"""SELECT * FROM questions_mistakes WHERE tg_id = '{id}' AND geocache_code = '{code}' AND question_number = '{question_number}'"""
+        ).fetchall()
+
+        cur.close()
+
+        return len(data)
+
+    except sql.Error as error:
+        print("Failed to insert data into sqlite table (questions_mistakes)", error)
+
+
 def get_geocaches_data(code):
     con = sql.connect("geocaches.db")
     cur = con.cursor()
@@ -286,7 +318,7 @@ def questions_one_by_one(message: Message, code: str, question_number: int):
                 f"Вопрос {i + 1}: *{question}*\n\nКоординаты: `{coords[i]}`"
             )
 
-        if len(questions_list) == question_number:
+        if len(questions_list) + 1 == question_number:
             finish_quest_success(message, code)
         else:
             if question_number == 0:
@@ -302,11 +334,14 @@ def questions_one_by_one(message: Message, code: str, question_number: int):
                 if message.text:
                     given_answer = message.text.lower().strip()
                     if given_answer != "/stop":
-                        real_answer = answers[question_number - 1].lower().strip()
-                        if given_answer == real_answer:
+                        mistakes = get_mistakes(
+                            str(message.from_user.id), code, str(question_number)
+                        )
+
+                        if mistakes >= 3:
                             question_answer = bot.send_message(
                                 message.chat.id,
-                                f"👍 Вы ответили верно! (`{given_answer}`)\n\n{questions_list[question_number]}",
+                                f"У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника. Вы переходите к следующему вопросу\n\n{questions_list[question_number]}",
                                 parse_mode="Markdown",
                             )
                             bot.register_next_step_handler(
@@ -316,17 +351,91 @@ def questions_one_by_one(message: Message, code: str, question_number: int):
                                 question_number + 1,
                             )
                         else:
-                            question_answer = bot.send_message(
-                                message.chat.id,
-                                f"👎 Ваш ответ (`{given_answer}`) - неверный. Попробуйте снова.",
-                                parse_mode="Markdown",
-                            )
-                            bot.register_next_step_handler(
-                                question_answer,
-                                questions_one_by_one,
-                                code,
-                                question_number,
-                            )
+                            real_answer = answers[question_number - 1].lower().strip()
+                            if given_answer == real_answer:
+                                if question_number == len(questions_list):
+                                    question_answer = bot.send_message(
+                                        message.chat.id,
+                                        f"👍 Вы ответили верно! (`{given_answer}`)",
+                                        parse_mode="Markdown",
+                                    )
+                                    questions_one_by_one(
+                                        question_answer,
+                                        code,
+                                        question_number + 1,
+                                    )
+                                else:
+                                    question_answer = bot.send_message(
+                                        message.chat.id,
+                                        f"👍 Вы ответили верно! (`{given_answer}`)\n\n{questions_list[question_number]}",
+                                        parse_mode="Markdown",
+                                    )
+                                    bot.register_next_step_handler(
+                                        question_answer,
+                                        questions_one_by_one,
+                                        code,
+                                        question_number + 1,
+                                    )
+                            else:
+                                if mistakes >= 2:
+                                    if question_number == len(questions_list):
+                                        question_answer = bot.send_message(
+                                            message.chat.id,
+                                            f"👎 Ваш ответ (`{given_answer}`) - неверный. У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника.",
+                                            parse_mode="Markdown",
+                                        )
+                                        add_mistake(
+                                            str(message.from_user.id),
+                                            code,
+                                            str(question_number),
+                                        )
+                                        questions_one_by_one(
+                                            question_answer,
+                                            code,
+                                            question_number + 1,
+                                        )
+                                    else:
+                                        question_answer = bot.send_message(
+                                            message.chat.id,
+                                            f"👎 Ваш ответ (`{given_answer}`) - неверный. У вас не осталось попыток на этот вопрос. Если вы думаете, что это ошибка, свяжитесь с создателем тайника. Вы переходите к следующему вопросу\n\n{questions_list[question_number]}",
+                                            parse_mode="Markdown",
+                                        )
+                                        add_mistake(
+                                            str(message.from_user.id),
+                                            code,
+                                            str(question_number),
+                                        )
+                                        bot.register_next_step_handler(
+                                            question_answer,
+                                            questions_one_by_one,
+                                            code,
+                                            question_number + 1,
+                                        )
+                                else:
+                                    if mistakes == 0:
+                                        question_answer = bot.send_message(
+                                            message.chat.id,
+                                            f"👎 Ваш ответ (`{given_answer}`) - неверный. Попробуйте снова. У вас осталось 2 попытки на этот вопрос.",
+                                            parse_mode="Markdown",
+                                        )
+                                    elif mistakes == 1:
+                                        question_answer = bot.send_message(
+                                            message.chat.id,
+                                            f"👎 Ваш ответ (`{given_answer}`) - неверный. Попробуйте снова. У вас осталась 1 попытка на этот вопрос.",
+                                            parse_mode="Markdown",
+                                        )
+
+                                    add_mistake(
+                                        str(message.from_user.id),
+                                        code,
+                                        str(question_number),
+                                    )
+                                    bot.register_next_step_handler(
+                                        question_answer,
+                                        questions_one_by_one,
+                                        code,
+                                        question_number,
+                                    )
                     else:
                         stop_answering_question(message)
                 else:
